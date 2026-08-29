@@ -1,2 +1,0 @@
-# CampusLive
-Campus live

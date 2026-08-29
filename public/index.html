@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Campus Navigator & Shuttle Tracker</title>
+
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      body {
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      /* Sidebar */
+      #sidebar {
+        width: 340px;
+        background: #ffffff;
+        border-right: 1px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        z-index: 1000;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+      }
+
+      .header {
+        padding: 16px;
+        background: #1e293b;
+        color: white;
+      }
+      .header h2 {
+        font-size: 1.1rem;
+      }
+
+      .search-box {
+        padding: 12px;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .search-box input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        outline: none;
+        font-size: 0.9rem;
+      }
+      .search-box input:focus {
+        border-color: #3b82f6;
+      }
+
+      .list-container {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px;
+      }
+      .building-card {
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 8px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .building-card:hover {
+        background: #e2e8f0;
+        border-color: #94a3b8;
+      }
+      .building-card h4 {
+        font-size: 0.95rem;
+        color: #0f172a;
+      }
+      .building-card p {
+        font-size: 0.8rem;
+        color: #64748b;
+        margin-top: 4px;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #dbeafe;
+        color: #1e40af;
+        margin-top: 6px;
+      }
+
+      /* Map */
+      #map {
+        flex: 1;
+        height: 100%;
+      }
+
+      /* Custom Shuttle Marker Styling */
+      .shuttle-icon {
+        background-color: #2563eb;
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        border: 2px solid white;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <div class="header">
+        <h2>Campus Navigation</h2>
+      </div>
+      <div class="search-box">
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Search building or faculty..."
+        />
+      </div>
+      <div class="list-container" id="buildingList"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      const API_BASE = "http://localhost:8081"; // Update to your API domain/path
+
+      // 1. Initialize Map centered on campus coordinates
+      const map = L.map("map").setView([8.4805, 4.5422], 16);
+
+      // 2. Add OpenStreetMap Tiles
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap contributors",
+      }).addTo(map);
+
+      let buildingsData = [];
+      let shuttleMarkers = {};
+
+      // Custom Shuttle Icon
+      const createShuttleIcon = () => {
+        return L.divIcon({
+          className: "shuttle-icon",
+          html: "🚌",
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+        });
+      };
+
+      // 3. Fetch and Render Buildings
+      async function loadBuildings(query = "") {
+        try {
+          const url = query
+            ? `${API_BASE}/buildings?q=${encodeURIComponent(query)}`
+            : `${API_BASE}/buildings`;
+          const res = await fetch(url);
+          const json = await res.json();
+
+          if (json.status === "success") {
+            buildingsData = json.data;
+            renderBuildingList(buildingsData);
+            renderBuildingPins(buildingsData);
+          }
+        } catch (err) {
+          console.error("Error loading buildings:", err);
+        }
+      }
+
+      function renderBuildingList(items) {
+        const list = document.getElementById("buildingList");
+        list.innerHTML = "";
+
+        items.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "building-card";
+          card.innerHTML = `
+                    <h4>${item.name}</h4>
+                    <p>${item.description || "No description available"}</p>
+                    <span class="tag">${item.category || "General"}</span>
+                `;
+          card.onclick = () => {
+            map.flyTo([item.latitude, item.longitude], 18);
+          };
+          list.appendChild(card);
+        });
+      }
+
+      function renderBuildingPins(items) {
+        items.forEach((item) => {
+          L.marker([item.latitude, item.longitude])
+            .addTo(map)
+            .bindPopup(
+              `<b>${item.name}</b><br>${item.description}<br><a href="https://www.google.com/maps/dir/?api=1&destination=${item.latitude},${item.longitude}" target="_blank">Get Directions</a>`,
+            );
+        });
+      }
+
+      // 4. Poll Live Shuttle Locations Every 3 Seconds
+      async function updateShuttles() {
+        try {
+          const res = await fetch(`${API_BASE}/shuttles`);
+          const json = await res.json();
+
+          if (json.status === "success") {
+            json.data.forEach((shuttle) => {
+              const lat = parseFloat(shuttle.latitude);
+              const lng = parseFloat(shuttle.longitude);
+
+              if (shuttleMarkers[shuttle.id]) {
+                // Update marker position smoothly
+                shuttleMarkers[shuttle.id].setLatLng([lat, lng]);
+                shuttleMarkers[shuttle.id]
+                  .getPopup()
+                  .setContent(
+                    `<b>${shuttle.shuttle_name}</b><br>Speed: ${shuttle.speed} km/h`,
+                  );
+              } else {
+                // Create new marker
+                const marker = L.marker([lat, lng], {
+                  icon: createShuttleIcon(),
+                })
+                  .addTo(map)
+                  .bindPopup(
+                    `<b>${shuttle.shuttle_name}</b><br>Speed: ${shuttle.speed} km/h`,
+                  );
+                shuttleMarkers[shuttle.id] = marker;
+              }
+            });
+          }
+        } catch (err) {
+          console.error("Error updating shuttles:", err);
+        }
+      }
+
+      // Search Filter Event
+      document.getElementById("searchInput").addEventListener("input", (e) => {
+        loadBuildings(e.target.value);
+      });
+
+      // Initialize App
+      loadBuildings();
+      updateShuttles();
+      setInterval(updateShuttles, 3000); // 3-second polling for real-time tracking
+    </script>
+  </body>
+</html>
